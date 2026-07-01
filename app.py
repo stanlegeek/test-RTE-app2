@@ -559,20 +559,46 @@ dff = df[df["groupe"].isin(groupes_sel)]
 # Couleurs : une nuance par centrale, dérivée de la teinte éCO2mix de sa filière.
 color_map = build_color_map(dff)
 
-# --- Filtre par seuil de production sur la plage affichée ------------------
-seuil = st.number_input(
-    "N'afficher que les centrales dépassant cette production (MW) sur la plage",
-    min_value=0, value=0, step=50,
-    help="Production maximale sur la période. Ex. 100 = on masque les centrales "
-         "restées sous 100 MW (à l'arrêt) sur toute la plage. 0 = tout afficher.",
-)
-if seuil > 0:
+# --- Filtres d'affichage : puissance minimale et variation minimale --------
+st.markdown("##### Filtres d'affichage")
+col_f1, col_f2 = st.columns(2)
+with col_f1:
+    filtre_seuil_actif = st.checkbox(
+        "Filtrer par puissance minimale", value=False, key="filtre_seuil_actif",
+    )
+    seuil = st.number_input(
+        "N'afficher que les centrales dépassant cette production (MW) sur la plage",
+        min_value=0, value=100, step=50, disabled=not filtre_seuil_actif,
+        help="Production maximale sur la période. Ex. 100 = on masque les centrales "
+             "restées sous 100 MW (à l'arrêt) sur toute la plage.",
+    )
+with col_f2:
+    filtre_variation_actif = st.checkbox(
+        "Filtrer par variation minimale", value=False, key="filtre_variation_actif",
+    )
+    variation_pct = st.number_input(
+        "N'afficher que les centrales variant de plus de ce % sur la plage",
+        min_value=0.0, value=10.0, step=1.0, disabled=not filtre_variation_actif,
+        help="Variation = (max - min) / max sur la plage affichée, en %. Ex. 10 = on "
+             "masque les réacteurs restés quasi constants (moins de 10% d'écart entre "
+             "leur minimum et leur maximum de production).",
+    )
+
+if filtre_seuil_actif:
     maxima = dff.groupby("groupe")["valeur_mw"].max()
     groupes_ok = maxima[maxima > seuil].index
     dff = dff[dff["groupe"].isin(groupes_ok)]
 
+if filtre_variation_actif:
+    stats = dff.groupby("groupe")["valeur_mw"].agg(mini="min", maxi="max")
+    variation = pd.Series(0.0, index=stats.index)
+    non_nul = stats["maxi"] != 0
+    variation[non_nul] = (stats["maxi"] - stats["mini"])[non_nul] / stats["maxi"][non_nul] * 100
+    groupes_ok = variation[variation > variation_pct].index
+    dff = dff[dff["groupe"].isin(groupes_ok)]
+
 if dff.empty:
-    st.warning("Aucune centrale ne dépasse ce seuil sur la plage. Baisse la valeur.")
+    st.warning("Aucune centrale ne passe ces filtres sur la plage. Assouplis les critères.")
     st.stop()
 
 # --- Indicateurs ---
