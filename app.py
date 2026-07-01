@@ -102,15 +102,31 @@ def _text_color(hex_color: str) -> str:
     return "#000000" if (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 else "#ffffff"
 
 
+def _van_der_corput(i: int, base: int = 2) -> float:
+    """Suite de Van der Corput : répartit les indices 0..n-1 sur [0,1) en
+    éloignant au maximum deux indices voisins (contrairement à i/n, qui les
+    place côte à côte). Utilisé pour que deux centrales voisines dans la
+    liste ne se retrouvent jamais avec une teinte quasi identique."""
+    result, f = 0.0, 1.0
+    while i > 0:
+        f /= base
+        result += f * (i % base)
+        i //= base
+    return result
+
+
 def _shade(hex_color: str, i: int, n: int) -> str:
-    """Renvoie une nuance d'une couleur de base (variation de luminosité).
-    Permet de distinguer plusieurs centrales d'une même filière tout en
-    gardant la teinte éCO2mix de la filière."""
+    """Renvoie une nuance d'une couleur de base, en variant teinte,
+    luminosité ET saturation pour rester bien différenciable même avec de
+    nombreuses centrales dans la même filière (ex : plusieurs réacteurs
+    nucléaires). Garde la teinte éCO2mix de la filière comme point d'ancrage."""
     r, g, b = (int(hex_color[k:k + 2], 16) / 255 for k in (1, 3, 5))
     h, l, s = colorsys.rgb_to_hls(r, g, b)
     if n > 1:
-        lo, hi = max(0.30, l * 0.65), min(0.82, l * 1.35)
-        l = lo + (hi - lo) * i / (n - 1)
+        t = _van_der_corput(i)  # dans [0, 1), indices voisins bien écartés
+        h = (h + (t - 0.5) * (40 / 360)) % 1.0        # ± 20° de teinte
+        l = 0.30 + 0.45 * t                            # luminosité étalée
+        s = min(1.0, max(0.45, s * (0.7 + 0.5 * ((t * 3) % 1))))  # saturation variée
     r, g, b = colorsys.hls_to_rgb(h, l, s)
     return "#%02x%02x%02x" % (int(r * 255), int(g * 255), int(b * 255))
 
@@ -131,30 +147,38 @@ def build_color_map(df_sel: pd.DataFrame) -> dict:
 def line_chart_by_group(data: pd.DataFrame, color_map: dict, x_title: str,
                         height: int = 420):
     """Graphique en courbes : une centrale = une courbe, légende = nom des
-    centrales, couleurs = palette éCO2mix nuancée."""
+    centrales, couleurs = palette éCO2mix nuancée.
+
+    Une couche invisible mais épaisse est superposée à chaque courbe
+    (mark_line strokeWidth=20, opacity=0) pour élargir la zone de survol :
+    il n'est plus nécessaire de viser précisément le trait fin pour faire
+    apparaître l'infobulle."""
     domaine = [g for g in color_map if g in data["groupe"].unique()]
     plage = [color_map[g] for g in domaine]
-    return (
-        alt.Chart(data)
-        .mark_line()
-        .encode(
-            x=alt.X("debut:T", title=x_title),
-            y=alt.Y("valeur_mw:Q", title="Production (MW)"),
-            color=alt.Color(
-                "groupe:N", title="Centrale",
-                scale=alt.Scale(domain=domaine, range=plage),
-                legend=alt.Legend(symbolType="stroke", labelLimit=260),
-            ),
-            tooltip=[
-                alt.Tooltip("groupe:N", title="Centrale"),
-                alt.Tooltip("famille:N", title="Filière"),
-                alt.Tooltip("debut:T", title="Date"),
-                alt.Tooltip("valeur_mw:Q", title="MW", format=".0f"),
-            ],
-        )
-        .properties(height=height)
-        .interactive()
+    couleur = alt.Color(
+        "groupe:N", title="Centrale",
+        scale=alt.Scale(domain=domaine, range=plage),
+        legend=alt.Legend(symbolType="stroke", labelLimit=260),
     )
+    encodage_commun = dict(
+        x=alt.X("debut:T", title=x_title),
+        y=alt.Y("valeur_mw:Q", title="Production (MW)"),
+    )
+    tooltip = [
+        alt.Tooltip("groupe:N", title="Centrale"),
+        alt.Tooltip("famille:N", title="Filière"),
+        alt.Tooltip("debut:T", title="Date"),
+        alt.Tooltip("valeur_mw:Q", title="MW", format=".0f"),
+    ]
+    trait_visible = alt.Chart(data).mark_line(strokeWidth=1.5).encode(
+        color=couleur, **encodage_commun,
+    )
+    zone_survol = alt.Chart(data).mark_line(strokeWidth=20, opacity=0).encode(
+        color=alt.Color("groupe:N", scale=alt.Scale(domain=domaine, range=plage), legend=None),
+        tooltip=tooltip,
+        **encodage_commun,
+    )
+    return (trait_visible + zone_survol).properties(height=height).interactive()
 
 
 def fenetre_glissante(client_id, client_secret, jours: int):
