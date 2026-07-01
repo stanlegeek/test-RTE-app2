@@ -115,32 +115,29 @@ def _van_der_corput(i: int, base: int = 2) -> float:
     return result
 
 
-def _shade(hex_color: str, i: int, n: int) -> str:
-    """Renvoie une nuance d'une couleur de base, en variant teinte,
-    luminosité ET saturation pour rester bien différenciable même avec de
-    nombreuses centrales dans la même filière (ex : plusieurs réacteurs
-    nucléaires). Garde la teinte éCO2mix de la filière comme point d'ancrage."""
-    r, g, b = (int(hex_color[k:k + 2], 16) / 255 for k in (1, 3, 5))
-    h, l, s = colorsys.rgb_to_hls(r, g, b)
-    if n > 1:
-        t = _van_der_corput(i)  # dans [0, 1), indices voisins bien écartés
-        h = (h + (t - 0.5) * (40 / 360)) % 1.0        # ± 20° de teinte
-        l = 0.30 + 0.45 * t                            # luminosité étalée
-        s = min(1.0, max(0.45, s * (0.7 + 0.5 * ((t * 3) % 1))))  # saturation variée
-    r, g, b = colorsys.hls_to_rgb(h, l, s)
+GOLDEN_ANGLE = 137.508  # répartit des teintes sur tout le cercle chromatique
+                        # sans jamais placer deux valeurs proches côte à côte
+
+
+def _hsl_to_hex(hue_deg: float, s: float, l: float) -> str:
+    r, g, b = colorsys.hls_to_rgb((hue_deg % 360) / 360, l, s)
     return "#%02x%02x%02x" % (int(r * 255), int(g * 255), int(b * 255))
 
 
 def build_color_map(df_sel: pd.DataFrame) -> dict:
-    """Associe à chaque centrale une couleur dérivée de la teinte éCO2mix de
-    sa filière (nuances différentes pour des centrales d'une même filière)."""
-    gf = df_sel[["groupe", "famille"]].drop_duplicates()
+    """Associe à chaque centrale une couleur vive et bien distincte, répartie
+    sur tout le spectre (rouge, vert, bleu, violet…) plutôt que limitée à la
+    teinte de sa filière : avec beaucoup de centrales, ancrer toutes les
+    nuances sur une seule couleur de base ne laissait pas assez d'écart pour
+    bien les différencier à l'œil."""
+    groupes = sorted(df_sel["groupe"].unique())
     cmap = {}
-    for fam in FAMILLE_ORDER:
-        groupes = sorted(gf[gf["famille"] == fam]["groupe"])
-        base = ECO2MIX_COLORS.get(fam, "#888888")
-        for i, g in enumerate(groupes):
-            cmap[g] = _shade(base, i, len(groupes))
+    for i, g in enumerate(groupes):
+        hue = i * GOLDEN_ANGLE
+        t = _van_der_corput(i, base=3)  # base différente du pas d'or : décorrèle
+        s = 0.70 + 0.25 * t             # saturation élevée -> couleurs vives
+        l = 0.40 + 0.16 * ((t * 2) % 1)  # luminosité modérée -> reste lisible
+        cmap[g] = _hsl_to_hex(hue, s, l)
     return cmap
 
 
