@@ -142,14 +142,19 @@ def build_color_map(df_sel: pd.DataFrame) -> dict:
 
 
 def line_chart_by_group(data: pd.DataFrame, color_map: dict, x_title: str,
-                        height: int = 420):
+                        height: int = 420, x_format: str = "%d/%m %Hh"):
     """Graphique en courbes : une centrale = une courbe, légende = nom des
     centrales, couleurs = palette éCO2mix nuancée.
 
     Une couche invisible mais épaisse est superposée à chaque courbe
     (mark_line strokeWidth=20, opacity=0) pour élargir la zone de survol :
     il n'est plus nécessaire de viser précisément le trait fin pour faire
-    apparaître l'infobulle."""
+    apparaître l'infobulle.
+
+    `x_format` (format d3-time) est explicite plutôt que laissé à l'auto-
+    formatage d'Altair : sur une plage de plusieurs jours, celui-ci n'affiche
+    parfois que l'heure sur les graduations, ce qui rend impossible de situer
+    les points dans le temps."""
     domaine = [g for g in color_map if g in data["groupe"].unique()]
     plage = [color_map[g] for g in domaine]
     couleur = alt.Color(
@@ -158,7 +163,7 @@ def line_chart_by_group(data: pd.DataFrame, color_map: dict, x_title: str,
         legend=alt.Legend(symbolType="stroke", labelLimit=260),
     )
     encodage_commun = dict(
-        x=alt.X("debut:T", title=x_title),
+        x=alt.X("debut:T", title=x_title, axis=alt.Axis(format=x_format, labelAngle=-45)),
         y=alt.Y("valeur_mw:Q", title="Production (MW)"),
     )
     tooltip = [
@@ -486,6 +491,16 @@ def add_famille(groupes_de_la_famille):
     st.session_state["groupes_sel"] = sorted(actuel)
 
 
+def add_familles_multi(df_ref):
+    """Ajoute d'un coup toutes les centrales de chaque filière choisie dans
+    le multiselect groupé (sans doublon, et sans toucher au reste de la
+    sélection)."""
+    actuel = set(st.session_state.get("groupes_sel", []))
+    for fam in st.session_state.get("familles_multi_sel", []):
+        actuel.update(df_ref[df_ref["famille"] == fam]["groupe"].dropna().unique())
+    st.session_state["groupes_sel"] = sorted(actuel)
+
+
 def clear_selection():
     st.session_state["groupes_sel"] = []
 
@@ -540,6 +555,28 @@ for i in range(0, len(familles_presentes), 5):
             )
 
 st.button("🗑️ Tout effacer", on_click=clear_selection)
+
+# --- 1bis) Deuxième fenêtre de filtre : sélection groupée de plusieurs
+# filières en une seule action (complète les boutons ci-dessus, qui n'en
+# ajoutent qu'une à la fois). --------------------------------------------
+with st.expander("Sélection groupée par filière (plusieurs à la fois)"):
+    st.caption(
+        "Choisis une ou plusieurs filières puis clique sur \"Ajouter\" : toutes "
+        "leurs centrales sont ajoutées d'un coup au menu ci-dessous."
+    )
+    col_multi, col_btn = st.columns([4, 1])
+    with col_multi:
+        st.multiselect(
+            "Filières à ajouter",
+            options=familles_presentes,
+            key="familles_multi_sel",
+            label_visibility="collapsed",
+        )
+    with col_btn:
+        st.button(
+            "➕ Ajouter", key="btn_ajouter_familles_multi",
+            on_click=add_familles_multi, args=(df,), use_container_width=True,
+        )
 
 # --- 2) Menu déroulant : sélection manuelle des groupes -------------------
 st.multiselect(
@@ -633,7 +670,7 @@ with st.expander("Voir le détail par centrale (tableau + export CSV)"):
 # Graphiques 2 et 3 : fenêtres glissantes jusqu'à aujourd'hui
 # (mêmes centrales sélectionnées ; données chargées séparément)
 # ==========================================================================
-def graphe_glissant(titre, jours_options, defaut, rule, label_x, key):
+def graphe_glissant(titre, jours_options, defaut, rule, label_x, key, x_format="%d/%m %Hh"):
     """Affiche un graphique sur une fenêtre glissante avec menu de durée."""
     st.subheader(titre)
     jours = st.selectbox(
@@ -659,7 +696,7 @@ def graphe_glissant(titre, jours_options, defaut, rule, label_x, key):
         .resample(rule).mean().reset_index()
     )
     st.altair_chart(
-        line_chart_by_group(d, color_map, x_title=label_x, height=360),
+        line_chart_by_group(d, color_map, x_title=label_x, height=360, x_format=x_format),
         use_container_width=True,
     )
 
@@ -667,7 +704,7 @@ st.divider()
 # Graphique 2 — mois glissant (pas journalier)
 graphe_glissant(
     "Mois glissant", jours_options=[15, 30, 60, 90], defaut=30,
-    rule="1D", label_x="Jour", key="select_mois",
+    rule="1D", label_x="Jour", key="select_mois", x_format="%d/%m",
 )
 st.caption("Moyenne journalière par centrale.")
 
