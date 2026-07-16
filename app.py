@@ -115,13 +115,13 @@ PARC_NUCLEAIRE = {
     "💧 Vienne": [("Civaux", 2, 1450)],
     "💧 Rhône": [("Bugey", 4, 900), ("Saint-Alban", 2, 1300),
                  ("Cruas", 4, 900), ("Tricastin", 4, 900)],
-    "💧 Garonne": [("Golfech", 2, 1300)],
+    "💧 Garonne": [("Golfech", 2, 1300), ("Le Blayais", 4, 900)],
     "💧 Seine": [("Nogent-sur-Seine", 2, 1300)],
     "💧 Moselle": [("Cattenom", 4, 1300)],
     "💧 Meuse": [("Chooz", 2, 1450)],
-    "🌊 Eau de mer & estuaire": [("Gravelines", 6, 900), ("Penly", 2, 1300),
-                                 ("Paluel", 4, 1300), ("Flamanville", 2, 1300),
-                                 ("Flamanville EPR", 1, 1650), ("Le Blayais", 4, 900)],
+    "🌊 Eau de mer": [("Gravelines", 6, 900), ("Penly", 2, 1300),
+                      ("Paluel", 4, 1300), ("Flamanville", 2, 1300),
+                      ("Flamanville EPR", 1, 1650)],
 }
 
 
