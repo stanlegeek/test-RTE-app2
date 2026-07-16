@@ -139,10 +139,12 @@ def _tour_svg(couleur: str, taille: int = 22) -> str:
 
 
 def _badge(n: int) -> str:
+    # couleur du texte explicite : en thème sombre, le texte hériterait du
+    # blanc et deviendrait invisible sur le fond blanc du badge
     return (
         '<span style="border:1.5px solid #7d8899;border-radius:4px;background:#fff;'
-        'font-weight:700;font-size:0.8rem;min-width:20px;text-align:center;'
-        f'padding:0 3px">{n}</span>'
+        'color:#111827;font-weight:700;font-size:0.8rem;min-width:20px;'
+        f'text-align:center;padding:0 3px">{n}</span>'
     )
 
 
@@ -159,7 +161,7 @@ def render_parc_nucleaire():
         lignes = "".join(
             '<div style="display:flex;align-items:center;gap:7px;padding:2px 0">'
             f'{_tour_svg(PUISSANCE_COULEURS[mw])}'
-            f'<span style="font-size:0.86rem;flex:1;white-space:nowrap">{nom}</span>'
+            f'<span style="font-size:0.86rem;flex:1;white-space:nowrap;color:#1f2937">{nom}</span>'
             f'{_badge(n)}</div>'
             for nom, n, mw in centrales
         )
@@ -179,7 +181,7 @@ def render_parc_nucleaire():
         + "".join(cartes) + '</div>'
         '<div style="display:flex;flex-wrap:wrap;gap:18px;margin-top:12px;'
         'padding:8px 12px;background:#f4f7fa;border-radius:8px;font-size:0.82rem;'
-        'align-items:center">'
+        'align-items:center;color:#1f2937">'
         '<span style="font-weight:700">Puissance des réacteurs :</span>'
         + legende_items
         + f'<span style="display:flex;align-items:center;gap:5px">{_badge(4)} '
