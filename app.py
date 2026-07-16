@@ -96,6 +96,98 @@ def famille_from_type(production_type: str) -> str:
 alt.data_transformers.disable_max_rows()
 
 
+# ----------------------------------------------------------------------------
+# Récap du parc nucléaire par cours d'eau (données statiques, style carte EDF)
+# ----------------------------------------------------------------------------
+# Couleur de la tour aéroréfrigérante selon la puissance des réacteurs
+PUISSANCE_COULEURS = {
+    900: "#2f7ed8",    # bleu
+    1300: "#6fbf44",   # vert
+    1450: "#c25ec4",   # rose
+    1650: "#e8542f",   # rouge (EPR)
+}
+
+# Centrales par cours d'eau (ordre amont -> aval), + catégorie eau de mer.
+# Chaque entrée : (nom, nombre de réacteurs, puissance unitaire MWe)
+PARC_NUCLEAIRE = {
+    "💧 Loire": [("Belleville", 2, 1300), ("Dampierre", 4, 900),
+                 ("Saint-Laurent", 2, 900), ("Chinon", 4, 900)],
+    "💧 Vienne": [("Civaux", 2, 1450)],
+    "💧 Rhône": [("Bugey", 4, 900), ("Saint-Alban", 2, 1300),
+                 ("Cruas", 4, 900), ("Tricastin", 4, 900)],
+    "💧 Garonne": [("Golfech", 2, 1300)],
+    "💧 Seine": [("Nogent-sur-Seine", 2, 1300)],
+    "💧 Moselle": [("Cattenom", 4, 1300)],
+    "💧 Meuse": [("Chooz", 2, 1450)],
+    "🌊 Eau de mer & estuaire": [("Gravelines", 6, 900), ("Penly", 2, 1300),
+                                 ("Paluel", 4, 1300), ("Flamanville", 2, 1300),
+                                 ("Flamanville EPR", 1, 1650), ("Le Blayais", 4, 900)],
+}
+
+
+def _tour_svg(couleur: str, taille: int = 22) -> str:
+    """Petite tour aéroréfrigérante en SVG, avec panache de vapeur."""
+    hauteur = round(taille * 26 / 20)
+    return (
+        f'<svg width="{taille}" height="{hauteur}" viewBox="0 0 20 26" style="flex:none">'
+        f'<circle cx="13.5" cy="3.5" r="2.8" fill="#e3e9ee"/>'
+        f'<path d="M5.5 7 L14.5 7 C13.8 11 14.8 17 17.5 25 L2.5 25 '
+        f'C5.2 17 6.2 11 5.5 7 Z" fill="{couleur}" stroke="rgba(0,0,0,0.15)"/>'
+        f'<ellipse cx="10" cy="7" rx="4.5" ry="1.5" fill="#dfe6ec"/>'
+        f'</svg>'
+    )
+
+
+def _badge(n: int) -> str:
+    return (
+        '<span style="border:1.5px solid #7d8899;border-radius:4px;background:#fff;'
+        'font-weight:700;font-size:0.8rem;min-width:20px;text-align:center;'
+        f'padding:0 3px">{n}</span>'
+    )
+
+
+def render_parc_nucleaire():
+    """Affiche la récap du parc nucléaire par rivière / eau de mer."""
+    st.subheader("Le parc nucléaire par cours d'eau")
+    st.caption(
+        "Chaque centrale est refroidie par une rivière ou par la mer. "
+        "Couleur de la tour = puissance des réacteurs ; le chiffre = nombre "
+        "de réacteurs du site."
+    )
+    cartes = []
+    for cours_eau, centrales in PARC_NUCLEAIRE.items():
+        lignes = "".join(
+            '<div style="display:flex;align-items:center;gap:7px;padding:2px 0">'
+            f'{_tour_svg(PUISSANCE_COULEURS[mw])}'
+            f'<span style="font-size:0.86rem;flex:1;white-space:nowrap">{nom}</span>'
+            f'{_badge(n)}</div>'
+            for nom, n, mw in centrales
+        )
+        cartes.append(
+            '<div style="border:1px solid #dde5ec;border-radius:10px;'
+            'padding:8px 14px;background:#f8fbfd;min-width:170px">'
+            f'<div style="font-weight:700;color:#1e4a72;margin-bottom:4px">{cours_eau}</div>'
+            f'{lignes}</div>'
+        )
+    legende_items = "".join(
+        f'<span style="display:flex;align-items:center;gap:5px">{_tour_svg(c, 16)} '
+        f'{mw} MWe{" (EPR)" if mw == 1650 else ""}</span>'
+        for mw, c in PUISSANCE_COULEURS.items()
+    )
+    html = (
+        '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:stretch">'
+        + "".join(cartes) + '</div>'
+        '<div style="display:flex;flex-wrap:wrap;gap:18px;margin-top:12px;'
+        'padding:8px 12px;background:#f4f7fa;border-radius:8px;font-size:0.82rem;'
+        'align-items:center">'
+        '<span style="font-weight:700">Puissance des réacteurs :</span>'
+        + legende_items
+        + f'<span style="display:flex;align-items:center;gap:5px">{_badge(4)} '
+        'nombre de réacteurs du site</span></div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
 def _text_color(hex_color: str) -> str:
     """Noir ou blanc selon la luminosité du fond, pour rester lisible."""
     r, g, b = (int(hex_color[k:k + 2], 16) for k in (1, 3, 5))
@@ -643,6 +735,11 @@ col1, col2, col3 = st.columns(3)
 col1.metric("Centrales affichées", f"{dff['groupe'].nunique()}")
 col2.metric("Points de mesure", f"{len(dff):,}".replace(",", " "))
 col3.metric("Production moyenne", f"{dff['valeur_mw'].mean():.0f} MW")
+
+# --- Récap du parc nucléaire par cours d'eau -------------------------------
+render_parc_nucleaire()
+
+st.divider()
 
 # --- Graphique 1 : plage choisie dans le menu de gauche -------------------
 st.subheader("Production sur la période sélectionnée")
