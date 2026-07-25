@@ -287,6 +287,29 @@ def fenetre_glissante(client_id, client_secret, jours: int):
 # ----------------------------------------------------------------------------
 # Accès API (côté serveur — le secret reste caché)
 # ----------------------------------------------------------------------------
+# À propos du cache (@st.cache_data)
+# ----------------------------------
+# Streamlit ré-exécute TOUT le script à chaque interaction (clic, filtre,
+# changement de date). Sans cache, chaque clic relancerait les appels à l'API
+# RTE : lenteur, et risque de dépasser les quotas de l'API.
+#
+# @st.cache_data mémorise le résultat d'une fonction pour un jeu d'arguments
+# donné. Deux propriétés importantes ici :
+#   - le cache est PARTAGÉ ENTRE TOUS LES VISITEURS. Si quelqu'un charge les
+#     7 derniers jours, le visiteur suivant qui demande la même période reçoit
+#     la donnée instantanément, sans nouvel appel à RTE ;
+#   - `ttl` fixe la durée de validité (au-delà, la donnée est rechargée), et
+#     `max_entries` plafonne le nombre de résultats conservés, les plus anciens
+#     étant supprimés en premier (LRU).
+#
+# `max_entries` est indispensable ici : une plage de 90 jours représente plus
+# d'un million de lignes, soit plusieurs centaines de Mo en mémoire. Sans
+# plafond, le cache grossit à chaque période différente demandée par les
+# visiteurs jusqu'à dépasser la limite mémoire de l'hébergement (~1 Go sur
+# Streamlit Community Cloud), ce qui fait redémarrer l'application.
+# ----------------------------------------------------------------------------
+
+
 def get_credentials():
     """Récupère client_id / client_secret depuis les secrets Streamlit."""
     try:
@@ -295,7 +318,8 @@ def get_credentials():
         return None, None
 
 
-@st.cache_data(ttl=6000)  # le token RTE est valable ~2h
+# Le token RTE est valable ~2h. Un seul jeu d'identifiants : 2 entrées suffisent.
+@st.cache_data(ttl=6000, max_entries=2, show_spinner=False)
 def get_token(client_id: str, client_secret: str) -> str:
     creds = f"{client_id}:{client_secret}".encode("utf-8")
     b64 = base64.b64encode(creds).decode("utf-8")
@@ -346,7 +370,10 @@ def flatten(payload):
     return rows
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+# Cache partagé par tous les visiteurs : la même période n'est téléchargée
+# qu'une fois pour tout le monde pendant 30 min. `max_entries=6` borne la
+# mémoire : au 7ᵉ jeu de dates différent, le plus ancien est évincé.
+@st.cache_data(ttl=1800, max_entries=6, show_spinner=False)
 def load_data(client_id, client_secret, start: dt.date, end: dt.date) -> pd.DataFrame:
     token = get_token(client_id, client_secret)
     rows = []
@@ -370,7 +397,8 @@ CAPACITIES_URL = (
 )
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
+# Les puissances installées ne bougent quasiment jamais : 24h de cache.
+@st.cache_data(ttl=86400, max_entries=2, show_spinner=False)
 def load_installed_capacities(client_id, client_secret) -> dict:
     """Renvoie {code_eic: puissance_installée_MW}.
     Nécessite l'abonnement à l'API 'Generation Installed Capacities'.
