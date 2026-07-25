@@ -1,0 +1,30 @@
+name: Keep-alive Streamlit
+
+# Streamlit Community Cloud met une application en sommeil après plusieurs
+# jours sans trafic. Le visiteur tombe alors sur l'écran « Yes, get this app
+# back up! », particulièrement gênant quand l'app est intégrée en iframe dans
+# le site declic-climatique.
+#
+# Ce workflow visite l'application une fois par jour pour remettre à zéro le
+# compteur d'inactivité.
+
+on:
+  schedule:
+    # Tous les jours à 05:17 UTC (07:17 heure de Paris en été).
+    # Minute décalée volontairement : les crons à l'heure pile sont saturés
+    # chez GitHub et peuvent être retardés de plusieurs dizaines de minutes.
+    - cron: "17 5 * * *"
+  # Permet aussi de lancer le ping à la main depuis l'onglet Actions.
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Visiter l'application Streamlit
+        run: |
+          curl --silent --show-error --location \
+               --retry 3 --retry-delay 20 --max-time 120 \
+               --output /dev/null --write-out "HTTP %{http_code} en %{time_total}s\n" \
+               --user-agent "keep-alive-bot (github actions)" \
+               "https://test-rte-app2-yzbnnlgxqvqqq5kl34ufnr.streamlit.app"
