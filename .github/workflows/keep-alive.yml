@@ -23,8 +23,19 @@ jobs:
     steps:
       - name: Visiter l'application Streamlit
         run: |
-          curl --silent --show-error --location \
-               --retry 3 --retry-delay 20 --max-time 120 \
-               --output /dev/null --write-out "HTTP %{http_code} en %{time_total}s\n" \
-               --user-agent "keep-alive-bot (github actions)" \
-               "https://test-rte-app2-yzbnnlgxqvqqq5kl34ufnr.streamlit.app"
+          # --cookie-jar / --cookie sont indispensables : sans eux, Streamlit
+          # renvoie indéfiniment un 303 pour poser son cookie de session, curl
+          # reboucle et s'arrête à sa 50e redirection (erreur 47).
+          # --max-redirs borne la casse si le handshake change à nouveau.
+          code=$(curl --silent --show-error --location \
+                      --cookie-jar /tmp/cookies.txt --cookie /tmp/cookies.txt \
+                      --max-redirs 10 \
+                      --retry 3 --retry-delay 20 --max-time 120 \
+                      --output /dev/null --write-out "%{http_code}" \
+                      --user-agent "Mozilla/5.0 (X11; Linux x86_64) keep-alive-bot (github actions)" \
+                      "https://test-rte-app2-yzbnnlgxqvqqq5kl34ufnr.streamlit.app" || echo "000")
+          echo "Réponse HTTP : $code"
+          case "$code" in
+            2*|3*) echo "L'application a bien été sollicitée, le compteur d'inactivité est remis à zéro." ;;
+            *) echo "::warning::Réponse inattendue ($code). Le trafic a tout de même été généré, mais l'app mérite un coup d'œil." ;;
+          esac
