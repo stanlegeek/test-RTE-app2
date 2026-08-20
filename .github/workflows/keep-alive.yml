@@ -1,12 +1,14 @@
 name: Keep-alive Streamlit
 
 # Streamlit Community Cloud met une application en sommeil après plusieurs
-# jours sans trafic. Le visiteur tombe alors sur l'écran « Yes, get this app
-# back up! », particulièrement gênant quand l'app est intégrée en iframe dans
+# jours sans trafic. Le visiteur tombe alors sur l'écran "Yes, get this app
+# back up!", particulièrement gênant quand l'app est intégrée en iframe dans
 # le site declic-climatique.
 #
-# Ce workflow visite l'application une fois par jour pour remettre à zéro le
-# compteur d'inactivité.
+# Toute la logique est dans scripts/reveil-streamlit.mjs, qui explique
+# pourquoi un vrai navigateur est nécessaire là où un curl ne servait à rien.
+# Ce fichier-ci n'est qu'un lanceur : il ne devrait plus avoir besoin de
+# bouger, et le script se fait évoluer par un simple push.
 
 on:
   schedule:
@@ -14,28 +16,31 @@ on:
     # Minute décalée volontairement : les crons à l'heure pile sont saturés
     # chez GitHub et peuvent être retardés de plusieurs dizaines de minutes.
     - cron: "17 5 * * *"
-  # Permet aussi de lancer le ping à la main depuis l'onglet Actions.
+  # Permet aussi de lancer le réveil à la main depuis l'onglet Actions.
   workflow_dispatch:
 
 jobs:
-  ping:
+  reveil:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
-      - name: Visiter l'application Streamlit
-        run: |
-          # --cookie-jar / --cookie sont indispensables : sans eux, Streamlit
-          # renvoie indéfiniment un 303 pour poser son cookie de session, curl
-          # reboucle et s'arrête à sa 50e redirection (erreur 47).
-          # --max-redirs borne la casse si le handshake change à nouveau.
-          code=$(curl --silent --show-error --location \
-                      --cookie-jar /tmp/cookies.txt --cookie /tmp/cookies.txt \
-                      --max-redirs 10 \
-                      --retry 3 --retry-delay 20 --max-time 120 \
-                      --output /dev/null --write-out "%{http_code}" \
-                      --user-agent "Mozilla/5.0 (X11; Linux x86_64) keep-alive-bot (github actions)" \
-                      "https://test-rte-app2-yzbnnlgxqvqqq5kl34ufnr.streamlit.app" || echo "000")
-          echo "Réponse HTTP : $code"
-          case "$code" in
-            2*|3*) echo "L'application a bien été sollicitée, le compteur d'inactivité est remis à zéro." ;;
-            *) echo "::warning::Réponse inattendue ($code). Le trafic a tout de même été généré, mais l'app mérite un coup d'œil." ;;
-          esac
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Installer Playwright (Chromium)
+        run: npm install --no-save playwright@1.49 && npx playwright install --with-deps chromium
+
+      - name: Réveiller l'application et vérifier qu'elle répond
+        run: node scripts/reveil-streamlit.mjs
+
+      - name: Copie d'écran en cas d'échec
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: echec
+          path: echec.png
+          if-no-files-found: ignore
