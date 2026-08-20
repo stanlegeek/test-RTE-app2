@@ -1,5 +1,5 @@
 """
-Appli web — Production RTE par groupe de production.
+Appli web : Production RTE par groupe de production.
 
 Affiche les données de l'API "Actual Generation" de RTE
 (ressource actual_generations_per_unit) dans une interface web simple :
@@ -285,7 +285,7 @@ def fenetre_glissante(client_id, client_secret, jours: int):
 
 
 # ----------------------------------------------------------------------------
-# Accès API (côté serveur — le secret reste caché)
+# Accès API (côté serveur, le secret reste caché)
 # ----------------------------------------------------------------------------
 # À propos du cache (@st.cache_data)
 # ----------------------------------
@@ -543,7 +543,7 @@ def render_table(df, client_id, client_secret):
 # Interface
 # ----------------------------------------------------------------------------
 st.set_page_config(page_title="Production RTE par groupe", page_icon="⚡", layout="wide")
-st.title("⚡ Production d'électricité par groupe — données RTE")
+st.title("⚡ Production d'électricité par groupe : données RTE")
 st.caption(
     "Source : API Actual Generation de RTE (production nette injectée sur le réseau, en MW). "
     "Données construites en H+1 à partir des télémesures."
@@ -828,7 +828,7 @@ def graphe_glissant(titre, jours_options, defaut, rule, label_x, key, x_format="
     )
 
 st.divider()
-# Graphique 2 — mois glissant (pas journalier)
+# Graphique 2 : mois glissant (pas journalier)
 graphe_glissant(
     "Mois glissant", jours_options=[15, 30, 60, 90], defaut=30,
     rule="1D", label_x="Jour", key="select_mois", x_format="%d/%m",
@@ -836,7 +836,7 @@ graphe_glissant(
 st.caption("Moyenne journalière par centrale.")
 
 st.divider()
-# Graphique 3 — semaine glissante (pas horaire)
+# Graphique 3 : semaine glissante (pas horaire)
 graphe_glissant(
     "Semaine glissante", jours_options=[3, 7, 14, 21], defaut=7,
     rule="1h", label_x="Heure", key="select_semaine",
