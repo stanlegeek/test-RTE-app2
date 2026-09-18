@@ -15,6 +15,7 @@ Les identifiants RTE sont lus depuis st.secrets (jamais exposés au navigateur).
 import base64
 import colorsys
 import datetime as dt
+import re
 import time
 
 import numpy as np
@@ -196,49 +197,126 @@ def _text_color(hex_color: str) -> str:
     return "#000000" if (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 else "#ffffff"
 
 
-def _van_der_corput(i: int, base: int = 2) -> float:
-    """Suite de Van der Corput : répartit les indices 0..n-1 sur [0,1) en
-    éloignant au maximum deux indices voisins (contrairement à i/n, qui les
-    place côte à côte). Utilisé pour que deux centrales voisines dans la
-    liste ne se retrouvent jamais avec une teinte quasi identique."""
-    result, f = 0.0, 1.0
-    while i > 0:
-        f /= base
-        result += f * (i % base)
-        i //= base
-    return result
-
-
-GOLDEN_ANGLE = 137.508  # répartit des teintes sur tout le cercle chromatique
-                        # sans jamais placer deux valeurs proches côte à côte
-
-
 def _hsl_to_hex(hue_deg: float, s: float, l: float) -> str:
     r, g, b = colorsys.hls_to_rgb((hue_deg % 360) / 360, l, s)
     return "#%02x%02x%02x" % (int(r * 255), int(g * 255), int(b * 255))
 
 
+# Couleurs des courbes : une couleur usuelle par centrale (site), déclinée du
+# clair au foncé pour ses tranches. Chaque liste est parcourue dans l'ordre
+# alphabétique des centrales affichées, et reprend au début si elle s'épuise.
+# Nucléaire en bord de mer : le bleu de la mer, le jaune et le marron du sable
+COULEURS_MER = [
+    "#1e88e5",  # bleu
+    "#fdd835",  # jaune
+    "#9c6b30",  # marron
+    "#26c6da",  # bleu turquoise
+]
+# Nucléaire en bord de rivière : des verts et des rouges, en alternance
+COULEURS_RIVIERE = [
+    "#2ca02c",  # vert
+    "#e53935",  # rouge
+    "#8bc34a",  # vert pomme
+    "#d81b60",  # rouge framboise
+    "#2ecc71",  # vert émeraude
+    "#f4511e",  # rouge orangé
+]
+# Autres filières : d'abord des couleurs absentes du nucléaire, puis celles du
+# nucléaire que les centrales affichées n'utilisent pas
+COULEURS_AUTRES = [
+    "#8c47d1",  # violet
+    "#fb8c00",  # orange
+    "#e040fb",  # fuchsia
+    "#9e9e9e",  # gris
+    "#3f51b5",  # indigo
+]
+# Centrales nucléaires refroidies par la mer, sous leur nom RTE (catégorie
+# « Eau de mer » de PARC_NUCLEAIRE) ; les autres sont en bord de rivière
+SITES_BORD_DE_MER = {"FLAMANVILLE", "GRAVELINES", "PALUEL", "PENLY"}
+# Écart de luminosité entre la couleur de la centrale et ses tranches
+# extrêmes : la plus claire à +0,18, la plus foncée à -0,18
+ECART_TRANCHES = 0.18
+
+
+def _site_tranche(nom: str):
+    """Sépare le nom RTE d'un groupe en centrale et numéro de tranche :
+    "ST ALBAN 1" -> ("ST ALBAN", 1), "DK6-TG1" -> ("DK6-TG", 1). Un nom
+    sans numéro final forme à lui seul sa centrale, avec None pour numéro."""
+    m = re.fullmatch(r"(.*?)[\s-]*(\d+)", nom.strip())
+    if m and m.group(1):
+        return m.group(1), int(m.group(2))
+    return nom.strip(), None
+
+
+def _cle_naturelle(nom: str):
+    """Clé de tri par centrale puis par numéro de tranche, pour ranger
+    BATHIE 2 avant BATHIE 10."""
+    site, numero = _site_tranche(nom)
+    return site, -1 if numero is None else numero
+
+
+def _degrade(base: str, n: int) -> list:
+    """n nuances d'une couleur, de la plus claire à la plus foncée, réparties
+    autour de sa luminosité : la centrale se reconnaît à sa teinte, chaque
+    tranche à sa nuance. Une centrale d'une seule tranche garde la couleur
+    telle quelle. La plus foncée ne descend pas sous 0,34 de luminosité pour
+    rester visible sur fond noir."""
+    if n == 1:
+        return [base]
+    r, g, b = (int(base[k:k + 2], 16) / 255 for k in (1, 3, 5))
+    teinte, luminosite, saturation = colorsys.rgb_to_hls(r, g, b)
+    fonce = min(max(luminosite - ECART_TRANCHES, 0.34), 0.82 - 2 * ECART_TRANCHES)
+    return [
+        _hsl_to_hex(teinte * 360, saturation,
+                    fonce + 2 * ECART_TRANCHES * (1 - i / (n - 1)))
+        for i in range(n)
+    ]
+
+
 def build_color_map(df_sel: pd.DataFrame) -> dict:
-    """Associe à chaque centrale une couleur vive et bien distincte, répartie
-    sur tout le spectre (rouge, vert, bleu, violet…) plutôt que limitée à la
-    teinte de sa filière : avec beaucoup de centrales, ancrer toutes les
-    nuances sur une seule couleur de base ne laissait pas assez d'écart pour
-    bien les différencier à l'œil."""
-    groupes = sorted(df_sel["groupe"].unique())
-    cmap = {}
-    for i, g in enumerate(groupes):
-        hue = i * GOLDEN_ANGLE
-        t = _van_der_corput(i, base=3)  # base différente du pas d'or : décorrèle
-        s = 0.70 + 0.25 * t             # saturation élevée -> couleurs vives
-        l = 0.40 + 0.16 * ((t * 2) % 1)  # luminosité modérée -> reste lisible
-        cmap[g] = _hsl_to_hex(hue, s, l)
-    return cmap
+    """Associe à chaque groupe une couleur usuelle : une couleur par centrale,
+    déclinée du clair au foncé pour ses tranches, dans l'ordre de leur
+    numéro. Les centrales nucléaires de bord de mer sont en bleu, jaune ou
+    marron, celles de rivière en vert ou rouge, les autres filières prennent
+    les couleurs restantes.
+
+    Les clés sont rangées par centrale puis par numéro de tranche : c'est
+    l'ordre de la légende des courbes."""
+    tranches, familles = {}, {}
+    for groupe, famille in (df_sel[["groupe", "famille"]]
+                            .drop_duplicates("groupe").itertuples(index=False)):
+        site, numero = _site_tranche(groupe)
+        tranches.setdefault(site, []).append((-1 if numero is None else numero, groupe))
+        familles.setdefault(site, famille)
+
+    def categorie(site):
+        if familles[site] != "Nucléaire":
+            return "autre"
+        return "mer" if site in SITES_BORD_DE_MER else "riviere"
+
+    sites = sorted(tranches)
+    base_site = {}
+    # Le nucléaire d'abord, pour savoir quelles couleurs restent aux autres
+    for cat, palette in (("mer", COULEURS_MER), ("riviere", COULEURS_RIVIERE)):
+        for i, site in enumerate(s for s in sites if categorie(s) == cat):
+            base_site[site] = palette[i % len(palette)]
+    restantes = COULEURS_AUTRES + [c for c in COULEURS_MER + COULEURS_RIVIERE
+                                   if c not in base_site.values()]
+    for i, site in enumerate(s for s in sites if categorie(s) == "autre"):
+        base_site[site] = restantes[i % len(restantes)]
+
+    couleurs = {}
+    for site, base in base_site.items():
+        groupes = [g for _, g in sorted(tranches[site])]
+        couleurs.update(zip(groupes, _degrade(base, len(groupes))))
+    return {g: couleurs[g] for g in sorted(couleurs, key=_cle_naturelle)}
 
 
 def line_chart_by_group(data: pd.DataFrame, color_map: dict, x_title: str,
                         height: int = 420, x_format: str = "%d/%m %Hh"):
-    """Graphique en courbes : une centrale = une courbe, légende = nom des
-    centrales, couleurs = palette éCO2mix nuancée.
+    """Graphique en courbes : une tranche = une courbe, légende = nom des
+    tranches, couleurs = une par centrale, nuancée par tranche (voir
+    build_color_map).
 
     Une couche invisible mais épaisse est superposée à chaque courbe
     (mark_line strokeWidth=20, opacity=0) pour élargir la zone de survol :
@@ -297,10 +375,11 @@ def area_chart_by_group(data: pd.DataFrame, color_map: dict, x_title: str,
     famille = data.drop_duplicates("groupe").set_index("groupe")["famille"]
     rang_famille = {f: i for i, f in enumerate(FAMILLE_ORDER)}
     # Ordre de la légende, de haut en bas : les filières de la dernière à la
-    # première (le nucléaire finit en bas), les centrales par nom dans chacune
+    # première (le nucléaire finit en bas), puis les centrales par nom et
+    # leurs tranches par numéro, donc de la plus claire à la plus foncée
     domaine = sorted(
         famille.index,
-        key=lambda g: (-rang_famille.get(famille[g], len(FAMILLE_ORDER)), g),
+        key=lambda g: (-rang_famille.get(famille[g], len(FAMILLE_ORDER)), _cle_naturelle(g)),
     )
     plage = [color_map[g] for g in domaine]
     # Rang d'empilement : 0 = couche posée sur l'axe = dernière ligne de la légende
