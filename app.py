@@ -538,7 +538,13 @@ def load_data(client_id, client_secret, start: dt.date, end: dt.date) -> pd.Data
         time.sleep(0.5)
     df = pd.DataFrame(rows)
     if not df.empty:
-        df["debut"] = pd.to_datetime(df["debut"])
+        # Les dates portent le décalage de Paris : +01:00 l'hiver, +02:00
+        # l'été. Sur une période qui chevauche un changement d'heure, les deux
+        # se mélangent et pandas refuse de les lire telles quelles : on passe
+        # par l'UTC, puis on revient à l'heure de Paris pour l'affichage.
+        # Les jours du tableau et du ré-échantillonnage journalier restent
+        # ainsi des jours de Paris (de 23 h ou 25 h au changement d'heure).
+        df["debut"] = pd.to_datetime(df["debut"], utc=True).dt.tz_convert("Europe/Paris")
         df["filiere_fr"] = df["filiere"].map(FILIERES_FR).fillna(df["filiere"])
         df["famille"] = df["filiere"].map(famille_from_type)
     return df
