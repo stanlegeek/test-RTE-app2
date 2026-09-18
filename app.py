@@ -448,14 +448,14 @@ def build_table(df: pd.DataFrame, cap_dict: dict):
     daily = (tmp.groupby(["groupe", "jour"])["mwh"].sum() / 1000).unstack("jour")
     daily = daily.reindex(sorted(daily.columns), axis=1)
 
-    # Modulation canicule : énergie du dernier jour de la plage / max de la plage
+    # Modulation : énergie du dernier jour de la plage / max de la plage
     if daily.shape[1]:
         dernier_jour = daily.iloc[:, -1]
         max_plage = daily.max(axis=1)
         modulation = (dernier_jour / max_plage).replace([np.inf, -np.inf], np.nan)
     else:
         modulation = pd.Series(dtype=float)
-    agg["modulation_canicule"] = agg["groupe"].map(modulation)
+    agg["modulation"] = agg["groupe"].map(modulation)
 
     daily.columns = [pd.Timestamp(c).strftime("%d/%m") + " (GWh)" for c in daily.columns]
     daily = daily.reset_index()
@@ -464,11 +464,11 @@ def build_table(df: pd.DataFrame, cap_dict: dict):
         "groupe": "Centrale", "famille": "Énergie",
         "installee": "Puissance installée (MW)",
         "pmax": "Pmax plage (MW)", "pmin": "Pmin plage (MW)",
-        "modulation_canicule": "Modulation canicule",
+        "modulation": "Modulation",
     })
     jour_cols = [c for c in table.columns if c.endswith("(GWh)")]
     ordre = ["Centrale", "Énergie", "Puissance installée (MW)",
-             "Pmax plage (MW)", "Pmin plage (MW)", "Modulation canicule"] + jour_cols
+             "Pmax plage (MW)", "Pmin plage (MW)", "Modulation"] + jour_cols
     return table[ordre], step_h, jour_cols
 
 
@@ -512,14 +512,14 @@ def render_table(df, client_id, client_secret):
                              f"color:{_text_color(couleur)};font-weight:600")
         i_centrale = row.index.get_loc("Centrale")
         styles[i_centrale] = f"border-left:6px solid {couleur};font-weight:600"
-        i_modulation = row.index.get_loc("Modulation canicule")
-        if pd.notna(row["Modulation canicule"]) and row["Modulation canicule"] < 0.8:
+        i_modulation = row.index.get_loc("Modulation")
+        if pd.notna(row["Modulation"]) and row["Modulation"] < 0.8:
             styles[i_modulation] = "background-color:#ff4d4d;color:#ffffff;font-weight:600"
         return styles
 
     fmt = {"Puissance installée (MW)": "{:.0f}",
            "Pmax plage (MW)": "{:.0f}", "Pmin plage (MW)": "{:.0f}",
-           "Modulation canicule": "{:.0%}"}
+           "Modulation": "{:.0%}"}
     for c in jour_cols:
         fmt[c] = "{:.2f}"
 
