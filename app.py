@@ -274,7 +274,81 @@ def line_chart_by_group(data: pd.DataFrame, color_map: dict, x_title: str,
         tooltip=tooltip,
         **encodage_commun,
     )
-    return (trait_visible + zone_survol).properties(height=height).interactive()
+    return _fond_transparent(
+        (trait_visible + zone_survol).properties(height=height).interactive()
+    )
+
+
+def area_chart_by_group(data: pd.DataFrame, color_map: dict, x_title: str,
+                        height: int = 420, x_format: str = "%d/%m %Hh"):
+    """Graphique en aires empilées : les productions des centrales
+    s'additionnent, chaque centrale gardant la couleur de sa courbe.
+
+    Les centrales sont empilées par filière dans l'ordre éCO2mix (le
+    nucléaire posé sur l'axe, comme sur éCO2mix), puis par nom. La légende
+    suit l'empilement : sa première ligne est la couche du haut, sa dernière
+    celle du bas, pour retrouver d'un coup d'œil quelle aire correspond à
+    quelle centrale.
+
+    Seules les centrales présentes dans `color_map` sont gardées, comme sur
+    les courbes : une centrale sans couleur y reste invisible, mais ici elle
+    creuserait un vide dans la pile."""
+    data = data[data["groupe"].isin(list(color_map))]
+    famille = data.drop_duplicates("groupe").set_index("groupe")["famille"]
+    rang_famille = {f: i for i, f in enumerate(FAMILLE_ORDER)}
+    # Ordre de la légende, de haut en bas : les filières de la dernière à la
+    # première (le nucléaire finit en bas), les centrales par nom dans chacune
+    domaine = sorted(
+        famille.index,
+        key=lambda g: (-rang_famille.get(famille[g], len(FAMILLE_ORDER)), g),
+    )
+    plage = [color_map[g] for g in domaine]
+    # Rang d'empilement : 0 = couche posée sur l'axe = dernière ligne de la légende
+    rang = {g: len(domaine) - 1 - i for i, g in enumerate(domaine)}
+    data = data.assign(rang=data["groupe"].map(rang))
+    graphe = alt.Chart(data).mark_area().encode(
+        x=alt.X("debut:T", title=x_title, axis=alt.Axis(format=x_format, labelAngle=-45)),
+        y=alt.Y("valeur_mw:Q", title="Production cumulée (MW)", stack="zero"),
+        color=alt.Color(
+            "groupe:N", title="Centrale",
+            scale=alt.Scale(domain=domaine, range=plage),
+            legend=alt.Legend(symbolType="square", labelLimit=260),
+        ),
+        order=alt.Order("rang:Q", sort="ascending"),
+        tooltip=[
+            alt.Tooltip("groupe:N", title="Centrale"),
+            alt.Tooltip("famille:N", title="Filière"),
+            alt.Tooltip("debut:T", title="Date"),
+            alt.Tooltip("valeur_mw:Q", title="MW", format=".0f"),
+        ],
+    )
+    return _fond_transparent(graphe.properties(height=height).interactive())
+
+
+# Grille des graphiques : ce gris semi-transparent redonne sur fond noir la
+# teinte du thème Streamlit (#31333F), et reste visible sur le fond gris de la
+# section du mois glissant, où cette teinte se confondrait avec le fond.
+GRILLE_TRANSPARENTE = "rgba(128, 128, 128, 0.31)"
+
+
+def _fond_transparent(graphe):
+    """Laisse voir le fond de la section (noir ou gris) derrière le graphique :
+    le thème Streamlit y peint sinon la couleur de fond de la page."""
+    return (graphe.properties(background="transparent")
+            .configure_axis(gridColor=GRILLE_TRANSPARENTE))
+
+
+def graphe_cumule(data: pd.DataFrame, color_map: dict, **options):
+    """Titre et graphique en aires empilées, placés sous un graphique en
+    courbes. `options` : mêmes réglages d'axe que pour les courbes."""
+    st.markdown(
+        "##### Production cumulée",
+        help="Les productions des centrales s'additionnent : le haut de la pile "
+             "donne la production totale des centrales affichées. La légende "
+             "suit l'empilement, de la couche du haut à celle du bas.",
+    )
+    st.altair_chart(area_chart_by_group(data, color_map, **options),
+                    use_container_width=True)
 
 
 def fenetre_glissante(client_id, client_secret, jours: int):
@@ -771,26 +845,48 @@ render_parc_nucleaire()
 
 st.divider()
 
-# --- Graphique 1 : plage choisie dans le menu de gauche -------------------
-st.subheader("Production sur la période sélectionnée")
-chart_df = dff.groupby(["debut", "groupe", "famille"])["valeur_mw"].sum().reset_index()
-st.altair_chart(
-    line_chart_by_group(chart_df, color_map, x_title="Heure"),
-    use_container_width=True,
-)
+# --- Fonds des sections de graphiques --------------------------------------
+# Chaque section est un grand rectangle pleine largeur : fond de page (noir en
+# thème sombre) pour la période sélectionnée, gris pour le mois glissant, fond
+# de page pour la semaine glissante, afin de les distinguer d'un coup d'œil.
+# Le gris est semi-transparent : foncé sur fond noir, clair sur fond blanc.
+# L'ombre sans flou (box-shadow) prolonge le gris jusqu'aux bords de la zone
+# principale, et clip-path l'empêche de déborder en haut et en bas.
+st.html("""
+<style>
+.st-key-section_periode, .st-key-section_mois, .st-key-section_semaine {
+    padding: 1.5rem 0;
+}
+.st-key-section_mois {
+    background: rgba(128, 128, 128, 0.35);
+    box-shadow: 0 0 0 100vmax rgba(128, 128, 128, 0.35);
+    clip-path: inset(0 -100vmax);
+}
+</style>
+""")
 
-# Tableau détaillé
-with st.expander("Voir le détail par centrale (tableau + export CSV)"):
-    st.dataframe(
-        dff.sort_values("debut").rename(columns={
-            "code_eic": "Code EIC", "groupe": "Centrale", "famille": "Filière",
-            "debut": "Début", "valeur_mw": "Valeur (MW)",
-        })[["Code EIC", "Centrale", "Filière", "Début", "Valeur (MW)"]],
-        use_container_width=True, hide_index=True,
+# --- Graphique 1 : plage choisie dans le menu de gauche -------------------
+with st.container(key="section_periode"):
+    st.subheader("Production sur la période sélectionnée")
+    chart_df = dff.groupby(["debut", "groupe", "famille"])["valeur_mw"].sum().reset_index()
+    st.altair_chart(
+        line_chart_by_group(chart_df, color_map, x_title="Heure"),
+        use_container_width=True,
     )
-    csv = dff.to_csv(index=False).encode("utf-8")
-    st.download_button("⬇️ Télécharger en CSV", csv,
-                       file_name=f"production_rte_{start}_{end}.csv", mime="text/csv")
+    graphe_cumule(chart_df, color_map, x_title="Heure")
+
+    # Tableau détaillé
+    with st.expander("Voir le détail par centrale (tableau + export CSV)"):
+        st.dataframe(
+            dff.sort_values("debut").rename(columns={
+                "code_eic": "Code EIC", "groupe": "Centrale", "famille": "Filière",
+                "debut": "Début", "valeur_mw": "Valeur (MW)",
+            })[["Code EIC", "Centrale", "Filière", "Début", "Valeur (MW)"]],
+            use_container_width=True, hide_index=True,
+        )
+        csv = dff.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Télécharger en CSV", csv,
+                           file_name=f"production_rte_{start}_{end}.csv", mime="text/csv")
 
 
 # ==========================================================================
@@ -826,19 +922,20 @@ def graphe_glissant(titre, jours_options, defaut, rule, label_x, key, x_format="
         line_chart_by_group(d, color_map, x_title=label_x, height=360, x_format=x_format),
         use_container_width=True,
     )
+    graphe_cumule(d, color_map, x_title=label_x, height=360, x_format=x_format)
 
-st.divider()
-# Graphique 2 : mois glissant (pas journalier)
-graphe_glissant(
-    "Mois glissant", jours_options=[15, 30, 60, 90], defaut=30,
-    rule="1D", label_x="Jour", key="select_mois", x_format="%d/%m",
-)
-st.caption("Moyenne journalière par centrale.")
+# Graphique 2 : mois glissant (pas journalier), sur fond gris
+with st.container(key="section_mois"):
+    graphe_glissant(
+        "Mois glissant", jours_options=[15, 30, 60, 90], defaut=30,
+        rule="1D", label_x="Jour", key="select_mois", x_format="%d/%m",
+    )
+    st.caption("Moyenne journalière par centrale.")
 
-st.divider()
 # Graphique 3 : semaine glissante (pas horaire)
-graphe_glissant(
-    "Semaine glissante", jours_options=[3, 7, 14, 21], defaut=7,
-    rule="1h", label_x="Heure", key="select_semaine",
-)
-st.caption("Moyenne horaire par centrale.")
+with st.container(key="section_semaine"):
+    graphe_glissant(
+        "Semaine glissante", jours_options=[3, 7, 14, 21], defaut=7,
+        rule="1h", label_x="Heure", key="select_semaine",
+    )
+    st.caption("Moyenne horaire par centrale.")
